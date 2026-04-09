@@ -26,13 +26,24 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
         /// <param name="config">The collection of parameters (each by its name and value) of the current provider's configuration settings.</param>
         protected override void InitializeStorage(NameValueCollection config)
         {
-            this.accessKeyId = config[AccessKeyIdKey].Trim();
-            if (String.IsNullOrEmpty(this.accessKeyId))
-                throw new ConfigurationException("'{0}' is required.".Arrange(AccessKeyIdKey));
+            // Check if we should use IAM instance role instead of access keys
+            bool useIamInstanceRole = false;
+            if (config.Keys.Contains(UseIamInstanceRoleKey))
+            {
+                bool.TryParse(config[UseIamInstanceRoleKey], out useIamInstanceRole);
+            }
 
-            this.secretKey = config[SecretKeyKey].Trim();
-            if (String.IsNullOrEmpty(this.secretKey))
-                throw new ConfigurationException("'{0}' is required.".Arrange(SecretKeyKey));
+            // Only validate access keys if not using IAM instance role
+            if (!useIamInstanceRole)
+            {
+                this.accessKeyId = config[AccessKeyIdKey].Trim();
+                if (String.IsNullOrEmpty(this.accessKeyId))
+                    throw new ConfigurationException("'{0}' is required.".Arrange(AccessKeyIdKey));
+
+                this.secretKey = config[SecretKeyKey].Trim();
+                if (String.IsNullOrEmpty(this.secretKey))
+                    throw new ConfigurationException("'{0}' is required.".Arrange(SecretKeyKey));
+            }
 
             this.bucketName = config[BucketNameKey].Trim();
             if (String.IsNullOrEmpty(this.bucketName))
@@ -44,7 +55,29 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
                 throw new ConfigurationException("'{0}' is required.".Arrange(RegionEndpointKey));
 
             var regionEndpoint = (RegionEndpoint)endpointField.GetValue(null);
-            this.transferUtility = new TransferUtility(accessKeyId, secretKey, regionEndpoint);
+
+            // Initialize TransferUtility based on authentication method
+            if (useIamInstanceRole)
+            {
+                // Use IAM instance role - AWS SDK will automatically use EC2/ECS instance credentials
+                this.transferUtility = new TransferUtility(regionEndpoint);
+            }
+            else
+            {
+                // Use explicit access keys
+                this.transferUtility = new TransferUtility(accessKeyId, secretKey, regionEndpoint);
+            }
+
+            // Optional key prefix for organizing files in subdirectories
+            this.keyPrefix = string.Empty;
+            if (config.Keys.Contains(KeyPrefixKey))
+            {
+                var keyPrefixValue = config[KeyPrefixKey];
+                if (!String.IsNullOrEmpty(keyPrefixValue))
+                {
+                    this.keyPrefix = keyPrefixValue.Trim().TrimEnd('/') + "/";
+                }
+            }
 
             this.urlScheme = this.bucketName.Contains('.') ? Http : Https;
             if (config.Keys.Contains(UrlSchemeKey))
@@ -89,7 +122,7 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
         /// <returns>The resolved content item's external URL on the remote blob storage.</returns>
         public override string GetItemUrl(IBlobContentLocation content)
         {
-            return string.Concat(this.serviceUrl, content.FilePath);
+            return string.Concat(this.serviceUrl, this.keyPrefix, content.FilePath);
         }
 
         /// <summary>
@@ -102,9 +135,9 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
             var request = new CopyObjectRequest()
             {
                 SourceBucket = this.bucketName,
-                SourceKey = source.FilePath,
+                SourceKey = this.keyPrefix + source.FilePath,
                 DestinationBucket = this.bucketName,
-                DestinationKey = destination.FilePath,
+                DestinationKey = this.keyPrefix + destination.FilePath,
                 CannedACL = S3CannedACL.PublicRead
             };
             request.Metadata.Add(nameof(IBlobContent.FileId).ToLower(), source.FileId.ToString());
@@ -124,9 +157,9 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
             {
                 MetadataDirective = S3MetadataDirective.REPLACE,
                 SourceBucket = this.bucketName,
-                SourceKey = location.FilePath,
+                SourceKey = this.keyPrefix + location.FilePath,
                 DestinationBucket = this.bucketName,
-                DestinationKey = location.FilePath,
+                DestinationKey = this.keyPrefix + location.FilePath,
                 CannedACL = S3CannedACL.PublicRead
             };
 
@@ -147,7 +180,7 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
             var request = new GetObjectRequest()
             {
                 BucketName = this.bucketName,
-                Key = location.FilePath
+                Key = this.keyPrefix + location.FilePath
             };
             GetObjectResponse response = transferUtility.S3Client.GetObject(request);
 
@@ -170,7 +203,7 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
             var request = new TransferUtilityUploadRequest()
             {
                 BucketName = this.bucketName,
-                Key = content.FilePath,
+                Key = this.keyPrefix + content.FilePath,
                 PartSize = bufferSize,
                 ContentType = content.MimeType,
                 CannedACL = S3CannedACL.PublicRead
@@ -208,7 +241,7 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
             TransferUtilityOpenStreamRequest request = new TransferUtilityOpenStreamRequest()
             {
                 BucketName = this.bucketName,
-                Key = content.FilePath
+                Key = this.keyPrefix + content.FilePath
             };
             var stream = this.transferUtility.OpenStream(request);
             return stream;
@@ -223,7 +256,7 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
             bool shouldDelete = true;
             try
             {
-                GetObjectMetadataResponse response = transferUtility.S3Client.GetObjectMetadata(this.bucketName, location.FilePath);
+                GetObjectMetadataResponse response = transferUtility.S3Client.GetObjectMetadata(this.bucketName, this.keyPrefix + location.FilePath);
                 string s3BlobFileId = response.Metadata[$"{metadataKeyPrefix}{nameof(IBlobContentLocation.FileId).ToLower()}"];
                 string blobContentLocationId = location.FileId.ToString();
                 if (!string.IsNullOrEmpty(s3BlobFileId) && !s3BlobFileId.Equals(blobContentLocationId))
@@ -242,7 +275,7 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
                     var request = new DeleteObjectRequest()
                     {
                         BucketName = this.bucketName,
-                        Key = location.FilePath
+                        Key = this.keyPrefix + location.FilePath
                     };
                     transferUtility.S3Client.DeleteObject(request);
                 }
@@ -259,7 +292,7 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
             var request = new GetObjectRequest()
             {
                 BucketName = this.bucketName,
-                Key = location.FilePath
+                Key = this.keyPrefix + location.FilePath
             };
             try
             {
@@ -306,6 +339,8 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
         public const string BucketNameKey = "bucketName";
         public const string RegionEndpointKey = "regionEndpoint";
         public const string UrlSchemeKey = "urlScheme";
+        public const string UseIamInstanceRoleKey = "useIamInstanceRole";
+        public const string KeyPrefixKey = "keyPrefix";
 
         #endregion
 
@@ -316,6 +351,7 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
         private string bucketName = "";
         private string serviceUrl = "";
         private string urlScheme = "";
+        private string keyPrefix = "";
         TransferUtility transferUtility;
         private const string Http = "http";
         private const string Https = "https";
