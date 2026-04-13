@@ -49,7 +49,9 @@ namespace Telerik.Sitefinity.Amazon
                         { AmazonBlobStorageProvider.SecretKeyKey, "#sf_Secret" },
                         { AmazonBlobStorageProvider.BucketNameKey, string.Empty },
                         { AmazonBlobStorageProvider.RegionEndpointKey, string.Empty },
-                        { AmazonBlobStorageProvider.UrlSchemeKey, string.Empty }
+                        { AmazonBlobStorageProvider.UrlSchemeKey, string.Empty },
+                        { AmazonBlobStorageProvider.UseIamInstanceRoleKey, "false" },
+                        { AmazonBlobStorageProvider.KeyPrefixKey, string.Empty }
                    }
                 });
 
