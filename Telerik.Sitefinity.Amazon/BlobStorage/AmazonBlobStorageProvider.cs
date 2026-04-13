@@ -27,14 +27,13 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
         protected override void InitializeStorage(NameValueCollection config)
         {
             // Check if we should use IAM instance role instead of access keys
-            bool useIamInstanceRole = false;
             if (config.Keys.Contains(UseIamInstanceRoleKey))
             {
-                bool.TryParse(config[UseIamInstanceRoleKey], out useIamInstanceRole);
+                bool.TryParse(config[UseIamInstanceRoleKey], out this.useIamInstanceRole);
             }
 
             // Only validate access keys if not using IAM instance role
-            if (!useIamInstanceRole)
+            if (!this.useIamInstanceRole)
             {
                 this.accessKeyId = config[AccessKeyIdKey].Trim();
                 if (String.IsNullOrEmpty(this.accessKeyId))
@@ -57,7 +56,7 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
             var regionEndpoint = (RegionEndpoint)endpointField.GetValue(null);
 
             // Initialize TransferUtility based on authentication method
-            if (useIamInstanceRole)
+            if (this.useIamInstanceRole)
             {
                 // Use IAM instance role - AWS SDK will automatically use EC2/ECS instance credentials
                 this.transferUtility = new TransferUtility(regionEndpoint);
@@ -137,9 +136,14 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
                 SourceBucket = this.bucketName,
                 SourceKey = this.keyPrefix + source.FilePath,
                 DestinationBucket = this.bucketName,
-                DestinationKey = this.keyPrefix + destination.FilePath,
-                CannedACL = S3CannedACL.PublicRead
+                DestinationKey = this.keyPrefix + destination.FilePath
             };
+
+            if(!this.useIamInstanceRole)
+            {
+                request.CannedACL = S3CannedACL.PublicRead;
+            }
+
             request.Metadata.Add(nameof(IBlobContent.FileId).ToLower(), source.FileId.ToString());
 
             transferUtility.S3Client.CopyObject(request);
@@ -159,9 +163,13 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
                 SourceBucket = this.bucketName,
                 SourceKey = this.keyPrefix + location.FilePath,
                 DestinationBucket = this.bucketName,
-                DestinationKey = this.keyPrefix + location.FilePath,
-                CannedACL = S3CannedACL.PublicRead
+                DestinationKey = this.keyPrefix + location.FilePath
             };
+
+            if(!this.useIamInstanceRole)
+            {
+                req.CannedACL = S3CannedACL.PublicRead;
+            }
 
             req.Headers.CacheControl = properties.CacheControl;
             req.Headers.ContentType = properties.ContentType;
@@ -205,9 +213,13 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
                 BucketName = this.bucketName,
                 Key = this.keyPrefix + content.FilePath,
                 PartSize = bufferSize,
-                ContentType = content.MimeType,
-                CannedACL = S3CannedACL.PublicRead
+                ContentType = content.MimeType
             };
+
+            if(!this.useIamInstanceRole)
+            {
+                request.CannedACL = S3CannedACL.PublicRead;
+            }
 
             //get it before the upload, because afterwards the stream is closed already
             long sourceLength = source.Length;
@@ -351,6 +363,7 @@ namespace Telerik.Sitefinity.Amazon.BlobStorage
         private string bucketName = "";
         private string serviceUrl = "";
         private string urlScheme = "";
+        private bool useIamInstanceRole = false;
         private string keyPrefix = "";
         TransferUtility transferUtility;
         private const string Http = "http";
