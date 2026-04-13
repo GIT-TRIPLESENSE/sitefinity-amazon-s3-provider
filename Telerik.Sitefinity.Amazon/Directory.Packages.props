@@ -3,7 +3,7 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="Telerik.Sitefinity.Core" Version="15.4.8600" />
+    <PackageVersion Include="Telerik.Sitefinity.Core" Version="15.4.8627" />
     <PackageVersion Include="AWSSDK.S3" Version="4.0.17.1" />
   </ItemGroup>
 </Project>
